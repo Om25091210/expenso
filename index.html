@@ -128,8 +128,10 @@ td.r,th.r{text-align:right}
 .row.labels{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
 .row .ck{grid-area:ck} .row .nm{grid-area:nm} .row .am{grid-area:am} .row .qt{grid-area:qt} .row .ac{grid-area:ac} .row .x{grid-area:x}
 .row.done .nm{text-decoration:line-through;color:var(--muted)}
-.accts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
-.acct{display:grid;gap:6px}
+.accts{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
+.acct{display:grid;gap:6px;border:1px solid var(--line);border-radius:8px;padding:8px}
+.acct .bal{display:grid;grid-template-columns:minmax(0,1fr) 36px;gap:6px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
 
 /* ledger list */
 .list{display:grid}
@@ -186,7 +188,30 @@ dialog::backdrop{background:rgba(5,12,9,.55)}
 #toast button{color:var(--bg);text-decoration:underline;background:none;border:0;font-weight:600;padding:0}
 
 @media (max-width:640px){
-  .accts,.g3,.kv{grid-template-columns:1fr}
+  .wrap{padding-block:16px 32px;gap:14px} main{gap:14px}
+  h1{font-size:1.45rem}
+  section.card{padding:14px}
+  /* 16px inputs stop iOS zooming in on focus; taller targets for thumbs */
+  input,select{font-size:16px;min-height:42px}
+  input[type=checkbox]{min-height:0;width:22px;height:22px}
+  .btn,.chip{min-height:40px}
+  .chip{padding:8px 14px}
+  .x{height:42px;min-width:40px}
+  .g3,.kv{grid-template-columns:1fr}
+  /* tables become one card per row */
+  table.stack-t thead{display:none}
+  table.stack-t,.stack-t tbody{display:block}
+  .stack-t tr{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:8px}
+  .stack-t td{border:0;padding:0;text-align:left!important;min-width:0}
+  .stack-t td[data-l]::before{content:attr(data-l);display:block;font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  .stack-t td.first{grid-column:1 / -1;font-weight:600;font-family:var(--display);font-size:1rem}
+  .stack-t td.full{grid-column:1 / -1}
+  .stack-t td.o1{order:1} .stack-t td.o2{order:2;justify-self:end} .stack-t td.o3{order:3} .stack-t td.o4{order:4} .stack-t td.o5{order:5}
+  /* dialog becomes a bottom sheet */
+  dialog{width:100%;max-width:none;margin:auto 0 0;border-radius:16px 16px 0 0;max-height:92vh}
+  .dlg{padding:16px;padding-bottom:calc(16px + env(safe-area-inset-bottom,0px))}
+  .acts{display:grid;grid-template-columns:1fr 1fr}
+  .acts .btn{justify-self:stretch;text-align:center}
   .kv{grid-template-columns:repeat(2,minmax(0,1fr))}
   .g2{grid-template-columns:1fr 1fr}
   .big{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -200,6 +225,9 @@ dialog::backdrop{background:rgba(5,12,9,.55)}
   .tabs button[aria-current=page]{border-top-color:var(--accent)}
   body{padding-bottom:calc(66px + env(safe-area-inset-bottom,0px))}
   #toast{bottom:calc(76px + env(safe-area-inset-bottom,0px))}
+}
+@media (max-width:380px){
+  .big .v{font-size:1rem} .hero .hv{font-size:2rem} .tabs button{font-size:.68rem}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -219,7 +247,7 @@ dialog::backdrop{background:rgba(5,12,9,.55)}
 
 <script>
 /* ---------- constants ---------- */
-const KEY="mep-v2", OLD="mep-v1";
+const KEY="mep-v2", OLD="mep-v1", MAX_ACCTS=8;
 const CATS=["Food","Transport","Shopping","Health","Gifts & social","Repairs","Fun","Bills & fees","Other"];
 const SIGN={daily:-1,adhoc:-1,bill:-1,income:1,save:-1,withdraw:1};   // effect on the account balance
 const TYPE_LABEL={daily:"Day-to-day",adhoc:"Adhoc",bill:"Bill",income:"Income",save:"To savings",withdraw:"From savings"};
@@ -253,7 +281,7 @@ const ymOk = s => /^\d{4}-(0[1-9]|1[0-2])$/.test(s);
 function blank(){
   const t=today();
   return {v:2,
-    accounts:[{name:"Bank A",bal:3612},{name:"Bank B",bal:805},{name:"Bank C",bal:2257}],
+    accounts:[{name:"Bank A",bal:3612},{name:"Bank B",bal:805},{name:"Bank C",bal:2257},{name:"Bank D",bal:0}],
     period:{start:iso(t),end:iso(monthEndOf(t))},
     bills:[
       {id:uid(),name:"Wi-Fi bill",amt:470,qty:1,acct:1,paid:false},
@@ -268,7 +296,7 @@ function normalize(o){
   const n=blank(); if(!o||typeof o!=="object") return n;
   const num=(v,d=0)=>Number.isFinite(+v)?+v:d;
   const legacy=!o.v && Array.isArray(o.items);
-  if(Array.isArray(o.accounts)&&o.accounts.length) n.accounts=o.accounts.slice(0,6).map(a=>({name:String(a&&a.name||"Account"),bal:num(a&&a.bal)}));
+  if(Array.isArray(o.accounts)&&o.accounts.length) n.accounts=o.accounts.slice(0,MAX_ACCTS).map(a=>({name:String(a&&a.name||"Account"),bal:num(a&&a.bal)}));
   const A=n.accounts.length, acct=v=>{v=Math.round(num(v));return v>=0&&v<A?v:0};
   const line=(b,flag)=>({id:String(b&&b.id||uid()),name:String(b&&b.name||"Item"),amt:num(b&&b.amt),qty:Math.max(1,num(b&&b.qty,1)),acct:acct(b&&b.acct),[flag]:!legacy&&!!(b&&b[flag])});
   const bills=legacy?o.items:o.bills;
@@ -280,7 +308,7 @@ function normalize(o){
   } else if(o.period&&isoOk(o.period.start)&&isoOk(o.period.end)&&o.period.end>=o.period.start) n.period={start:o.period.start,end:o.period.end};
   if(o.daily) n.daily={amt:num(o.daily.amt),acct:acct(o.daily.acct)};
   if(Array.isArray(o.txns)) n.txns=o.txns.filter(x=>x&&SIGN[x.type]&&isoOk(x.date)&&num(x.amt)>0)
-    .map(x=>({id:String(x.id||uid()),type:x.type,amt:num(x.amt),acct:acct(x.acct),date:x.date,note:String(x.note||""),cat:String(x.cat||""),ref:String(x.ref||"")}));
+    .map(x=>({id:String(x.id||uid()),type:x.type,amt:num(x.amt),acct:+x.acct===-1?-1:acct(x.acct),date:x.date,note:String(x.note||""),cat:String(x.cat||""),ref:String(x.ref||"")}));
   n.savings=Math.max(0,num(o.savings));
   const g=o.goal;
   if(g&&num(g.target)>0&&ymOk(g.by)) n.goal={name:String(g.name||"Savings goal"),target:num(g.target),by:g.by,start:isoOk(g.start)?g.start:iso(t),startSaved:num(g.startSaved)};
@@ -411,7 +439,7 @@ function statusOf(c){
 
 /* ---------- shared view pieces ---------- */
 const acctOptions = sel => S.accounts.map((a,i)=>`<option value="${i}" ${i==sel?"selected":""}>${esc(a.name)}</option>`).join("");
-const acctName = i => S.accounts[i]?S.accounts[i].name:"?";
+const acctName = i => S.accounts[i]?S.accounts[i].name:"Removed account";
 function tilesHTML(c){
   return `<div class="big">
     <div><span class="eyebrow">Cash in accounts</span><span class="v">${fmt(c.cash)}</span></div>
@@ -522,19 +550,21 @@ function planOutHTML(c){
     ${tilesHTML(c)}<div class="status ${sl}">${esc(sm)}</div>
     <div class="limit"><div><span class="eyebrow">Daily limit</span><span class="v">${fmt(c.dailyLeft/c.days)}</span></div>
     <div><span class="eyebrow">Weekly limit</span><span class="v">${fmt(c.dailyLeft/c.days*7)}</span></div></div>
-    <div class="tw"><table><thead><tr><th>Account</th><th class="r">Has</th><th>Pays for</th><th class="r">Left</th><th></th></tr></thead><tbody>${
+    <div class="tw"><table class="stack-t"><thead><tr><th>Account</th><th class="r">Has</th><th>Pays for</th><th class="r">Left</th><th></th></tr></thead><tbody>${
     S.accounts.map((a,i)=>{
       const left=(+a.bal||0)+c.per[i].inc-c.per[i].out;
       const tag=left<0?`<span class="pill bad">Short</span>`:(idle&&idle.i===i&&c.per[i].inc===0?`<span class="pill res">Reserve</span>`:`<span class="pill ok">OK</span>`);
-      return `<tr><td>${esc(a.name)}</td><td class="r num">${fmt(+a.bal||0)}</td>
-        <td class="paid">${c.per[i].list.length?c.per[i].list.map(esc).join("<br>"):"Nothing. Don't touch it."}</td>
-        <td class="r num">${fmt(left)}</td><td>${tag}</td></tr>`}).join("")}</tbody></table></div>`;
+      return `<tr><td class="first o1">${esc(a.name)}</td><td class="r num o3" data-l="Has">${fmt(+a.bal||0)}</td>
+        <td class="paid full o5" data-l="Pays for">${c.per[i].list.length?c.per[i].list.map(esc).join("<br>"):"Nothing. Don't touch it."}</td>
+        <td class="r num o4" data-l="Left">${fmt(left)}</td><td class="o2">${tag}</td></tr>`}).join("")}</tbody></table></div>`;
 }
 V.plan=c=>`
   <section class="card"><div class="head"><h2>1. Balances today</h2><span class="hint">Live. Logging money updates these for you</span></div>
     <div class="accts">${S.accounts.map((a,i)=>`<div class="acct">
-      <input aria-label="Account ${i+1} name" value="${esc(a.name)}" data-list="accounts" data-k="name" data-i="${i}">
-      <input aria-label="${esc(a.name)} balance" class="num" type="number" inputmode="decimal" value="${a.bal}" data-list="accounts" data-k="bal" data-i="${i}"></div>`).join("")}</div></section>
+      <input aria-label="Account ${i+1} name" value="${esc(a.name)}" maxlength="30" data-list="accounts" data-k="name" data-i="${i}">
+      <div class="bal"><input aria-label="${esc(a.name)} balance" class="num" type="number" inputmode="decimal" value="${a.bal}" data-list="accounts" data-k="bal" data-i="${i}">
+      <button class="x" type="button" aria-label="Remove ${esc(a.name)}" data-act="delAcct" data-i="${i}" ${S.accounts.length<=1?"disabled":""}>×</button></div></div>`).join("")}</div>
+    <button class="btn" type="button" data-act="addAcct" ${S.accounts.length>=MAX_ACCTS?"disabled":""}>+ Add a bank${S.accounts.length>=MAX_ACCTS?` (max ${MAX_ACCTS})`:""}</button></section>
   <section class="card"><div class="head"><h2>2. Income still to come</h2><span class="hint">Tick when it lands, and it's added to the account</span></div>
     <div class="rows" id="incRows">${S.incomes.length?`<div class="row inc labels"><span class="ck">In</span><span class="nm">Income</span><span class="am">Amount (₹)</span><span class="ac">Into</span><span class="x"></span></div>`+S.incomes.map(incomeRow).join(""):`<p class="hint">Nothing expected. Add your salary or any money you're waiting on.</p>`}</div>
     <button class="btn" type="button" data-act="addRow" data-list="incomes">+ Add income</button></section>
@@ -638,10 +668,10 @@ V.months=c=>{
     <dt>Day-to-day spent</dt><dd>${fmt(c.dailySpent)} / ${fmt(c.budget)}</dd><dt>Adhoc</dt><dd>${fmt(c.adhoc)}</dd>
     <dt>Moved to savings</dt><dd>${fmt(c.savedNet)}</dd><dt>Cash in accounts</dt><dd>${fmt(c.cash)}</dd></dl>
     <button class="btn solid" type="button" data-act="nextMonth">Close ${monthLabel(S.period.end,true)} and plan next month</button></section>`;
-  h+=`<section class="card"><div class="head"><h2>Past months</h2></div>${hist.length?`<div class="tw"><table><thead><tr><th>Month</th><th class="r">Income</th><th class="r">Day-to-day</th><th class="r">Adhoc</th><th class="r">Saved</th><th class="r">Ended with</th><th></th></tr></thead><tbody>${
-    hist.map(x=>`<tr><td>${esc(x.label)}</td><td class="r num">${fmt(x.income)}</td><td class="r num">${fmt(x.daily)}<br><span class="paid">of ${fmt(x.budget)}</span></td>
-      <td class="r num">${fmt(x.adhoc)}</td><td class="r num">${fmt(x.saved)}</td><td class="r num">${fmt(x.cash)}</td>
-      <td>${x.hasGoal?(x.saved>=x.need-0.5?`<span class="pill ok">On pace</span>`:`<span class="pill bad">Behind</span>`):""}</td></tr>`).join("")}</tbody></table></div>`:`<p class="hint">No closed months yet. When you close this one it'll be kept here.</p>`}</section>`;
+  h+=`<section class="card"><div class="head"><h2>Past months</h2></div>${hist.length?`<div class="tw"><table class="stack-t"><thead><tr><th>Month</th><th class="r">Income</th><th class="r">Day-to-day</th><th class="r">Adhoc</th><th class="r">Saved</th><th class="r">Ended with</th><th></th></tr></thead><tbody>${
+    hist.map(x=>`<tr><td class="first">${esc(x.label)}</td><td class="r num" data-l="Income">${fmt(x.income)}</td><td class="r num" data-l="Day-to-day">${fmt(x.daily)}<br><span class="paid">of ${fmt(x.budget)}</span></td>
+      <td class="r num" data-l="Adhoc">${fmt(x.adhoc)}</td><td class="r num" data-l="Saved">${fmt(x.saved)}</td><td class="r num" data-l="Ended with">${fmt(x.cash)}</td>
+      <td class="full">${x.hasGoal?(x.saved>=x.need-0.5?`<span class="pill ok">On pace</span>`:`<span class="pill bad">Behind</span>`):""}</td></tr>`).join("")}</tbody></table></div>`:`<p class="hint">No closed months yet. When you close this one it'll be kept here.</p>`}</section>`;
   h+=`<section class="card"><div class="head"><h2>Your data</h2></div>
     <p class="hint">Everything is stored only in this browser. Export a backup now and then, and use it to move to another device.</p>
     <div class="acts" style="justify-content:flex-start"><button class="btn line" type="button" data-act="export">Export backup</button>
@@ -702,6 +732,27 @@ const ACT={
     if(it.paid||it.got){ // keep balances consistent: undo its ledger entry first
       const t=S.txns.find(x=>x.ref===it.id); if(t) removeTx(t.id) }
     S[L].splice(i,1); save(); render(true);
+  },
+  addAcct:()=>{
+    if(S.accounts.length>=MAX_ACCTS) return;
+    const n=S.accounts.length;
+    S.accounts.push({name:"Bank "+String.fromCharCode(65+n),bal:0});
+    save(); render(true);
+    const el=document.querySelector(`[data-list=accounts][data-k=name][data-i="${n}"]`); if(el){ el.focus(); el.select() }
+  },
+  delAcct:b=>{
+    const i=+b.dataset.i, a=S.accounts[i];
+    if(!a) return;
+    if(S.accounts.length<=1){ toast("Keep at least one bank."); return }
+    const moved=S.bills.filter(x=>x.acct===i&&!x.paid).length+S.incomes.filter(x=>x.acct===i&&!x.got).length+(S.daily.acct===i?1:0);
+    const first=S.accounts[i===0?1:0].name;
+    if(!confirm(`Remove ${a.name}?`+(a.bal?` Its ${fmt(a.bal)} leaves your cash total.`:"")
+      +(moved?` ${moved} planned ${moved===1?"item":"items"} will move to ${first}.`:"")+` Past log entries are kept.`)) return;
+    const shift=v=>v===i?0:(v>i?v-1:v);              // items on the removed bank fall back to the first remaining one
+    S.bills.forEach(x=>x.acct=shift(x.acct)); S.incomes.forEach(x=>x.acct=shift(x.acct)); S.daily.acct=shift(S.daily.acct);
+    S.txns.forEach(x=>{ x.acct=x.acct===i?-1:(x.acct>i?x.acct-1:x.acct) });
+    S.accounts.splice(i,1); save(); render(true);
+    toast(`${a.name} removed`);
   },
   gvIn:()=>moveSavings("save"), gvOut:()=>moveSavings("withdraw"),
   saveGoal:()=>{
