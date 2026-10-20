@@ -43,6 +43,9 @@ h2{font-family:var(--display);font-weight:700;font-size:1.12rem;margin:0}
 h3{font-family:var(--display);font-weight:700;font-size:.95rem;margin:0}
 .eyebrow{font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
 .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.top{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
+.sync{letter-spacing:0;text-transform:none;white-space:nowrap}
+.sync.ok{color:var(--accent)} .sync.offline,.sync.conflict{color:var(--warn)} .sync.error{color:var(--bad)}
 section.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px;display:grid;gap:14px}
 .head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
 .hint{color:var(--muted);font-size:.85rem;margin:0}
@@ -236,7 +239,7 @@ dialog::backdrop{background:rgba(5,12,9,.55)}
 <nav class="tabs" aria-label="Sections"><div id="tabs"></div></nav>
 <div class="wrap">
   <header>
-    <div class="eyebrow" id="dateLine">Month-end plan</div>
+    <div class="eyebrow top"><span id="dateLine">Month-end plan</span><span id="syncState" class="sync" hidden></span></div>
     <h1>Month-End Money Plan</h1>
   </header>
   <main id="view"></main>
@@ -321,7 +324,11 @@ try{
   const cur=localStorage.getItem(KEY), old=localStorage.getItem(OLD);
   S=normalize(JSON.parse(cur||old||"null"));
 }catch(e){ S=blank() }
-function save(){ try{ localStorage.setItem(KEY,JSON.stringify(S)) }catch(e){} }
+function persist(){ try{ localStorage.setItem(KEY,JSON.stringify(S)) }catch(e){} }   // this browser only
+function save(){                                                                       // a local edit: also queue it for the cloud
+  persist();
+  if(SY.on){ SY.dirty=true; SY.localAt=Date.now(); saveSY(); queuePush() }
+}
 
 /* ---------- money movement ---------- */
 // Every logged entry moves a live balance. dir=-1 undoes it.
@@ -672,8 +679,9 @@ V.months=c=>{
     hist.map(x=>`<tr><td class="first">${esc(x.label)}</td><td class="r num" data-l="Income">${fmt(x.income)}</td><td class="r num" data-l="Day-to-day">${fmt(x.daily)}<br><span class="paid">of ${fmt(x.budget)}</span></td>
       <td class="r num" data-l="Adhoc">${fmt(x.adhoc)}</td><td class="r num" data-l="Saved">${fmt(x.saved)}</td><td class="r num" data-l="Ended with">${fmt(x.cash)}</td>
       <td class="full">${x.hasGoal?(x.saved>=x.need-0.5?`<span class="pill ok">On pace</span>`:`<span class="pill bad">Behind</span>`):""}</td></tr>`).join("")}</tbody></table></div>`:`<p class="hint">No closed months yet. When you close this one it'll be kept here.</p>`}</section>`;
+  h+=syncCard();
   h+=`<section class="card"><div class="head"><h2>Your data</h2></div>
-    <p class="hint">Everything is stored only in this browser. Export a backup now and then, and use it to move to another device.</p>
+    <p class="hint">Export a backup now and then, whether or not sync is on. It's a plain JSON file you can keep or import on another device.</p>
     <div class="acts" style="justify-content:flex-start"><button class="btn line" type="button" data-act="export">Export backup</button>
     <button class="btn line" type="button" data-act="import">Import backup</button>
     <button class="btn danger" type="button" data-act="reset">Erase everything</button></div></section>`;
@@ -702,8 +710,117 @@ function toast(msg,undo){
   if(undo) $("undoBtn").onclick=()=>{ undo(); t.hidden=true };
 }
 
+/* ---------- cloud sync (optional; a Google Apps Script web app on your own Sheet, see apps-script/Code.gs) ---------- */
+// Local-first: every edit lands in localStorage immediately and is pushed in the background.
+// rev is the server revision this device last saw; a push is refused (409) if the cloud moved on.
+// Paste your web app URL here once to skip typing it on every device, or leave it empty and enter it in the Months tab.
+const SYNC_URL="https://script.google.com/macros/s/AKfycbx7Iio5fecKQ8F6GNKoegU4MxyVVS63nxvX2Hh_oJo6COTvGuDDDbQLAroz4KkaHmNE0A/exec";
+const SCRIPT_URL=/^https:\/\/script\.google\.com\/(a\/macros\/[\w.-]+\/)?macros\/s\/[\w-]+\/exec$/;
+let SY={on:false,declined:false,key:"",url:"",rev:0,dirty:false,localAt:0,last:null}, SYNC={state:"off",msg:""}, pushT=0, pushing=false, CONFLICT=null;
+try{ Object.assign(SY,JSON.parse(localStorage.getItem("mep-sync")||"{}")) }catch(e){}
+if(SY.key&&!SY.on&&!SY.declined) SY.on=true;   // saved by an earlier build
+function saveSY(){ try{ localStorage.setItem("mep-sync",JSON.stringify(SY)) }catch(e){} }
+const SYLABEL={ok:"Synced",busy:"Syncing…",offline:"Offline",error:"Sync problem",conflict:"Needs attention",off:""};
+const stamp=s=>new Date(s).toLocaleString("en-IN",{day:"numeric",month:"short",hour:"numeric",minute:"2-digit"});
+const syText=()=>SYNC.msg||(SY.last?"Last synced "+stamp(SY.last):"");
+function setSync(state,msg){
+  SYNC={state,msg:msg||""};
+  const el=$("syncState");
+  if(el){ el.hidden=!SY.on; el.className="sync "+state; el.textContent="● "+SYLABEL[state]; el.title=SYNC.msg }
+  const st=$("syStatus"); if(st) st.textContent=syText();
+}
+// Apps Script can't answer a CORS preflight or set status codes, so: text/plain POST, passphrase in the body, status in the reply.
+async function api(op,body){
+  const url=SYNC_URL||SY.url;
+  if(!SCRIPT_URL.test(url||"")) return {status:0,j:null};
+  const json=JSON.stringify({op,key:SY.key||"",...body});
+  const r=await fetch(url,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:json,keepalive:json.length<60000});
+  let j=null; try{ j=await r.json() }catch(e){}
+  return {status:(j&&j.status)||0,j};
+}
+function queuePush(){ clearTimeout(pushT); setSync("busy","Saving…"); pushT=setTimeout(push,1200) }
+function syncFailed(status){
+  if(status===401) setSync("error","The sync script now needs a passphrase. Turn sync off, then connect again to enter it.");
+  else if(status===0) setSync("error","The sync URL didn't answer like the sync script. Check the deployment.");
+  else setSync("error","The server couldn't save. Will retry.");
+}
+async function push(){
+  if(!SY.on||pushing) return;
+  if(!SY.dirty){ setSync("ok"); return }
+  pushing=true; const sentAt=SY.localAt;
+  try{
+    const {status,j}=await api("put",{baseRev:SY.rev,data:S});
+    if(status===200){ SY.rev=j.rev; SY.last=j.updatedAt; SY.dirty=SY.localAt!==sentAt; saveSY(); SY.dirty?queuePush():setSync("ok") }
+    else if(status===409) resolveConflict(j);
+    else syncFailed(status);
+  }catch(e){ setSync("offline","Offline. Changes are kept here and will upload when you're back.") }
+  finally{ pushing=false }
+}
+async function pull(){
+  if(!SY.on||pushing||$("dlg").open) return;
+  setSync("busy","Syncing…");
+  try{
+    const {status,j}=await api("get");
+    if(status!==200) return syncFailed(status);
+    if(!j.data){ SY.rev=0; SY.dirty=true; saveSY(); return push() }      // cloud empty: upload this device
+    if(j.rev===SY.rev){ if(SY.dirty) return push(); setSync("ok"); return }
+    if(!SY.dirty&&SY.rev>0) return adopt(j);                              // cloud is ahead and nothing here is unsynced
+    resolveConflict(j);                                                   // both sides changed, or first connect
+  }catch(e){ setSync("offline","Offline. Using the copy saved on this device.") }
+}
+function adopt(j){
+  S=normalize(j.data); persist();
+  SY.rev=j.rev; SY.last=j.updatedAt; SY.dirty=false; saveSY();
+  render(true); setSync("ok");
+}
+function resolveConflict(j){
+  CONFLICT=j; setSync("conflict","The cloud copy and this device differ. Choose which one to keep.");
+  const cloud=normalize(j.data), n=s=>`${s.accounts.length} banks · ${s.txns.length} entries · ${fmt(sum(s.accounts,a=>+a.bal||0))}`;
+  $("dlg").innerHTML=`<div class="dlg"><h2>Which copy do you want to keep?</h2>
+    <p class="hint">The cloud copy and the copy on this device don't match. The one you don't pick gets overwritten.</p>
+    <dl class="dl"><dt>Cloud${j.updatedAt?" (saved "+stamp(j.updatedAt)+")":""}</dt><dd>${n(cloud)}</dd><dt>This device</dt><dd>${n(S)}</dd></dl>
+    <div class="acts"><button class="btn line" type="button" data-act="useCloud">Use cloud copy</button><button class="btn solid" type="button" data-act="useDevice">Keep this device</button></div>
+    <button class="link" type="button" data-act="closeDlg" style="justify-self:start">Decide later</button></div>`;
+  if(!$("dlg").open) $("dlg").showModal();
+}
+// With the web app URL built in and no passphrase on the script, a device connects by itself.
+async function autoConnect(){
+  try{
+    const {status}=await api("get");
+    if(status!==200) return;                       // protected, or unreachable: the Months tab lets the user connect by hand
+    SY.on=true; SY.rev=0; SY.dirty=false; saveSY(); render(true); await pull();
+  }catch(e){}
+}
+function syncCard(){
+  if(!SY.on) return `<section class="card"><div class="head"><h2>Sync across devices</h2><span class="pill mute">Off</span></div>
+    <p class="hint">Right now your data lives only in this browser. Turn on sync to keep a copy in your own Google Sheet and see the same numbers on your phone and laptop. If you set a passphrase in the script, enter it below. If you didn't, leave it empty.</p>
+    ${SYNC_URL?"":`<div class="field"><label for="syUrl">Web app URL</label><input id="syUrl" type="url" inputmode="url" autocomplete="off" placeholder="https://script.google.com/macros/s/…/exec" value="${esc(SY.url||"")}"></div>`}
+    <div class="field"><label for="syPass">Passphrase (optional)</label><input id="syPass" name="password" type="password" autocomplete="current-password" maxlength="200"></div>
+    <button class="btn solid" type="button" data-act="syConnect">Connect and sync</button><p class="hint" id="syMsg" aria-live="polite"></p></section>`;
+  return `<section class="card"><div class="head"><h2>Sync across devices</h2><span class="pill ok">On</span></div>
+    <p class="hint" id="syStatus" aria-live="polite">${esc(syText())}</p>
+    <p class="hint">Open this site on another device and enter the same passphrase to see the same data. Changes upload automatically a moment after you make them.</p>
+    <div class="acts" style="justify-content:flex-start"><button class="btn line" type="button" data-act="syNow">Sync now</button><button class="btn danger" type="button" data-act="syOff">Turn off on this device</button></div></section>`;
+}
+
 /* ---------- actions ---------- */
 const ACT={
+  syConnect:async()=>{
+    const key=($("syPass").value||"").trim(), msg=$("syMsg");
+    const url=SYNC_URL||($("syUrl")?$("syUrl").value.trim():"");
+    if(!SCRIPT_URL.test(url)){ msg.textContent="Paste the web app URL from Apps Script. It starts with https://script.google.com/ and ends in /exec."; return }
+    const prev={...SY}; SY.key=key; SY.url=url; msg.textContent="Connecting…";
+    try{
+      const {status}=await api("get");
+      if(status===401){ SY=prev; msg.textContent=key?"That passphrase doesn't match the one in the script.":"This sheet is protected. Enter the passphrase set in the script's properties."; return }
+      if(status!==200){ SY=prev; msg.textContent="That URL didn't answer like the sync script. Check that the deployment's access is set to Anyone."; return }
+    }catch(e){ SY=prev; msg.textContent="Couldn't reach the script. Check your connection and the URL."; return }
+    SY.on=true; SY.declined=false; SY.rev=0; SY.dirty=false; saveSY(); render(true); await pull();
+  },
+  syNow:()=>pull(),
+  syOff:()=>{ SY={on:false,declined:true,key:"",url:SY.url,rev:0,dirty:false,localAt:0,last:null}; saveSY(); setSync("off"); render(true); toast("Sync is off on this device. The cloud copy is untouched.") },
+  useCloud:()=>{ const j=CONFLICT; CONFLICT=null; $("dlg").close(); if(j) adopt(j) },
+  useDevice:()=>{ const j=CONFLICT; CONFLICT=null; $("dlg").close(); if(!j) return; SY.rev=j.rev; SY.dirty=true; saveSY(); push() },
   tab:b=>show(b.dataset.tab),
   qt:b=>{ QT=b.dataset.t; render(true); $("qAmt").focus() },
   qaAdd:()=>{
@@ -881,7 +998,7 @@ document.addEventListener("click",e=>{
 });
 document.addEventListener("input",e=>{
   const el=e.target;
-  if(el.closest("#dlg")){ wizUpdate(); return }
+  if(el.closest("#dlg")){ if($("wSug")) wizUpdate(); return }
   if(el.dataset.list){
     const L=el.dataset.list, i=+el.dataset.i, k=el.dataset.k, it=S[L]&&S[L][i]; if(!it) return;
     if(k==="name") it.name=el.value; else it[k]=+el.value||0;
@@ -893,7 +1010,7 @@ document.addEventListener("input",e=>{
 });
 document.addEventListener("change",e=>{
   const el=e.target;
-  if(el.closest("#dlg")){ wizUpdate(); return }
+  if(el.closest("#dlg")){ if($("wSug")) wizUpdate(); return }
   if(el.dataset.actChange==="togglePaid") return togglePaid(+el.dataset.i,el.checked);
   if(el.dataset.actChange==="toggleGot") return toggleGot(+el.dataset.i,el.checked);
   if(el.dataset.list&&el.dataset.k==="acct"){ S[el.dataset.list][+el.dataset.i].acct=+el.value; planOut() }
@@ -926,9 +1043,18 @@ $("importFile").addEventListener("change",e=>{
 });
 document.addEventListener("visibilitychange",()=>{ if(!document.hidden&&iso(today())!==renderedDay&&!$("dlg").open) render(true) });
 
+// sync triggers: coming back to the tab pulls, leaving it flushes pending edits, regaining network retries
+document.addEventListener("visibilitychange",()=>{
+  if(!SY.on) return;
+  if(document.hidden){ if(SY.dirty){ clearTimeout(pushT); push() } } else pull();
+});
+window.addEventListener("online",()=>{ if(SY.on) pull() });
+
 const h0=(location.hash||"").slice(1);
 if(V[h0]) TAB=h0;
-save(); render(true);
+persist(); render(true);
+if(SY.on){ setSync(SY.dirty?"busy":"ok"); pull() }
+else if(SYNC_URL&&!SY.declined) autoConnect();
 </script>
 </body>
 </html>
