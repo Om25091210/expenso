@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Month-End Money Plan</title>
+<meta name="description" content="Plan bills and daily spending across three bank accounts until month end.">
+<meta name="theme-color" content="#1F6B4F">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Money Plan">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: one narrow ledger column — inputs (accounts, bills, daily spend) then the plan it produces */
+:root{
+  --bg:#EEF2EF; --surface:#FFFFFF; --ink:#16231D; --muted:#5D6B64; --line:#D3DDD7;
+  --accent:#1F6B4F; --accent-soft:#DCEDE4;
+  --warn:#9A5B00; --warn-soft:#FBEBD0; --bad:#B42318; --bad-soft:#FBE1DE; --good:#1F6B4F;
+  --display:"Familjen Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --body:"IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#0F1613; --surface:#17211C; --ink:#E3ECE7; --muted:#93A39B; --line:#2A3832;
+  --accent:#5DC79A; --accent-soft:#1D3A2D; --warn:#F0B44C; --warn-soft:#3A2C12; --bad:#FF8A7E; --bad-soft:#3E1C19; --good:#5DC79A;
+  color-scheme:dark }}
+:root[data-theme="dark"]{
+  --bg:#0F1613; --surface:#17211C; --ink:#E3ECE7; --muted:#93A39B; --line:#2A3832;
+  --accent:#5DC79A; --accent-soft:#1D3A2D; --warn:#F0B44C; --warn-soft:#3A2C12; --bad:#FF8A7E; --bad-soft:#3E1C19; --good:#5DC79A;
+  color-scheme:dark }
+*{box-sizing:border-box}
+html{color-scheme:light}
+body{margin:0;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5}
+.wrap{max-width:760px;margin:0 auto;padding-block:28px 48px;padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));display:grid;gap:22px}
+h1{font-family:var(--display);font-weight:700;font-size:1.9rem;line-height:1.15;margin:0;text-wrap:balance}
+h2{font-family:var(--display);font-weight:700;font-size:1.15rem;margin:0}
+.sub{color:var(--muted);margin:6px 0 0;max-width:62ch}
+.eyebrow{font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+section.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px;display:grid;gap:14px}
+.head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+.hint{color:var(--muted);font-size:.85rem;margin:0}
+label{font-size:.78rem;color:var(--muted);font-weight:500}
+input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px 10px;width:100%;min-width:0}
+input.num{font-family:var(--mono)}
+input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.accts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.acct{display:grid;gap:6px}
+.rows{display:grid;gap:8px}
+.row{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) 64px minmax(0,1.3fr) 34px;gap:8px;align-items:center}
+.row.labels{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+button{font:inherit;cursor:pointer;border-radius:6px}
+.btn{background:transparent;border:1px dashed var(--line);color:var(--accent);padding:8px 12px;font-weight:500;justify-self:start}
+.btn:hover{border-color:var(--accent)}
+.x{background:transparent;border:1px solid transparent;color:var(--muted);height:36px;font-size:1.1rem}
+.x:hover{color:var(--bad);border-color:var(--line)}
+.daily{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);gap:10px}
+.field{display:grid;gap:6px}
+/* summary */
+.big{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.big>div{background:var(--surface);padding:14px 16px;display:grid;gap:2px}
+.big .v{font-family:var(--mono);font-size:1.35rem;font-weight:600}
+.big .free .v{color:var(--accent)}
+.status{border-radius:8px;padding:12px 14px;font-weight:500}
+.status.ok{background:var(--accent-soft);color:var(--good)}
+.status.warn{background:var(--warn-soft);color:var(--warn)}
+.status.bad{background:var(--bad-soft);color:var(--bad)}
+table{width:100%;border-collapse:collapse;font-size:.92rem}
+th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+td.r,th.r{text-align:right}
+.pill{display:inline-block;font-size:.72rem;font-weight:600;padding:2px 8px;border-radius:999px}
+.pill.ok{background:var(--accent-soft);color:var(--good)}
+.pill.bad{background:var(--bad-soft);color:var(--bad)}
+.pill.res{background:var(--warn-soft);color:var(--warn)}
+.tw{overflow-x:auto}
+.paid{color:var(--muted);font-size:.82rem}
+ol.method{margin:0;padding-left:1.2em;display:grid;gap:8px;max-width:64ch}
+ol.method b{font-weight:600}
+.limit{display:flex;gap:18px;flex-wrap:wrap}
+.limit div{display:grid}
+.limit .v{font-family:var(--mono);font-size:1.6rem;font-weight:600;color:var(--accent)}
+@media (max-width:600px){
+  .accts,.daily{grid-template-columns:1fr}
+  .big{grid-template-columns:1fr}
+  .row{grid-template-columns:minmax(0,1fr) minmax(0,1fr) 34px}
+  .row.labels{display:none}
+  .row .nm{grid-column:1 / -1}
+  .row .qty{grid-column:auto}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow" id="dateLine">Month-end plan</div>
+    <h1>Month-End Money Plan</h1>
+    <p class="sub">Enter what's in each account and what still has to be paid before the month ends. The page splits every bill across your accounts, tells you if any account runs short, and gives you a daily spending limit.</p>
+  </header>
+
+  <section class="card">
+    <div class="head"><h2>1. Balances today</h2><span class="hint">Edit names and amounts</span></div>
+    <div class="accts" id="accts"></div>
+  </section>
+
+  <section class="card">
+    <div class="head"><h2>2. Bills and planned costs</h2><span class="hint">Pick which account pays each one</span></div>
+    <div class="rows" id="items"></div>
+    <button class="btn" id="addItem" type="button">+ Add a bill</button>
+  </section>
+
+  <section class="card">
+    <div class="head"><h2>3. Day-to-day money</h2><span class="hint">Food, snacks, small stuff</span></div>
+    <div class="daily">
+      <div class="field"><label for="dAmt">Amount for the rest of the month (₹)</label><input id="dAmt" class="num" type="number" min="0" inputmode="decimal"></div>
+      <div class="field"><label for="dAcct">Spend it from</label><select id="dAcct"></select></div>
+      <div class="field"><label for="endDate">Plan runs until</label><input id="endDate" type="date"></div>
+    </div>
+  </section>
+
+  <section class="card" aria-live="polite">
+    <div class="head"><h2>Your plan</h2><span class="hint num" id="daysLeft"></span></div>
+    <div class="big">
+      <div><span class="eyebrow">Total across accounts</span><span class="v" id="sTotal"></span></div>
+      <div><span class="eyebrow">Already promised</span><span class="v" id="sCommit"></span></div>
+      <div class="free"><span class="eyebrow">Free after everything</span><span class="v" id="sFree"></span></div>
+    </div>
+    <div class="status" id="status"></div>
+    <div class="limit" id="limit"></div>
+    <div class="tw"><table>
+      <thead><tr><th>Account</th><th class="r">Has</th><th>Pays for</th><th class="r">Left</th><th></th></tr></thead>
+      <tbody id="plan"></tbody>
+    </table></div>
+  </section>
+
+  <section class="card">
+    <h2>The monthly method</h2>
+    <ol class="method">
+      <li><b>Add up all three accounts.</b> That single total is all the money you have until the next income lands.</li>
+      <li><b>List every bill before spending anything.</b> Recharges, Wi-Fi, travel (trips × cost per trip). These are promised money, not free money.</li>
+      <li><b>Give each account one job.</b> One small account pays fixed bills, one pays daily spending, and the biggest stays as your reserve. Match bills to the account that covers them closest, so small leftovers don't sit idle.</li>
+      <li><b>Set the food money as a daily limit.</b> Divide it by the days left. Spending under the limit one day rolls over to the next.</li>
+      <li><b>Pay bills the day they're due, from the assigned account only.</b> Don't pay a bill from the reserve unless an account is short.</li>
+      <li><b>Leave the reserve alone.</b> What's left at month end is savings or a cushion for next month, not extra spending.</li>
+      <li><b>Check once a week.</b> Update balances here. If spending is ahead of the daily limit, cut the next few days to catch up.</li>
+    </ol>
+  </section>
+</div>
+
+<script>
+const defaults = {
+  accounts:[{name:"Bank A",bal:3612},{name:"Bank B",bal:805},{name:"Bank C",bal:2257}],
+  items:[
+    {name:"Wi-Fi bill",amt:470,qty:1,acct:1},
+    {name:"Phone recharge",amt:300,qty:1,acct:1},
+    {name:"Second phone bill",amt:295,qty:1,acct:2},
+    {name:"Office travel (per trip)",amt:300,qty:3,acct:2}
+  ],
+  daily:{amt:400,acct:2},
+  end:null
+};
+let S;
+try{ S = JSON.parse(localStorage.getItem("mep-v1")) || null }catch(e){ S=null }
+if(!S) S = JSON.parse(JSON.stringify(defaults));
+function save(){ try{ localStorage.setItem("mep-v1", JSON.stringify(S)) }catch(e){} }
+
+const fmt = n => "₹" + Math.round(n).toLocaleString("en-IN");
+const $ = id => document.getElementById(id);
+function today(){ const d=new Date(); d.setHours(0,0,0,0); return d }
+function monthEnd(){ const t=today(); return new Date(t.getFullYear(), t.getMonth()+1, 0) }
+function iso(d){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0") }
+
+function acctOptions(sel){ return S.accounts.map((a,i)=>`<option value="${i}" ${i==sel?"selected":""}>${esc(a.name)}</option>`).join("") }
+function esc(s){ return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])) }
+
+function renderAccts(){
+  $("accts").innerHTML = S.accounts.map((a,i)=>`
+    <div class="acct">
+      <input id="an${i}" aria-label="Account ${i+1} name" value="${esc(a.name)}" data-k="name" data-i="${i}">
+      <input id="ab${i}" aria-label="${esc(a.name)} balance" class="num" type="number" min="0" inputmode="decimal" value="${a.bal}" data-k="bal" data-i="${i}">
+    </div>`).join("");
+}
+function renderItems(){
+  $("items").innerHTML = `<div class="row labels"><span>Bill</span><span>Amount (₹)</span><span>Times</span><span>Paid from</span><span></span></div>` +
+  S.items.map((it,i)=>`
+    <div class="row">
+      <input class="nm" id="in${i}" aria-label="Bill name" value="${esc(it.name)}" data-k="name" data-i="${i}">
+      <input id="ia${i}" aria-label="Amount" class="num" type="number" min="0" inputmode="decimal" value="${it.amt}" data-k="amt" data-i="${i}">
+      <input class="qty num" id="iq${i}" aria-label="Times" type="number" min="1" value="${it.qty}" data-k="qty" data-i="${i}">
+      <select id="ic${i}" aria-label="Paid from" data-k="acct" data-i="${i}">${acctOptions(it.acct)}</select>
+      <button class="x" type="button" aria-label="Remove ${esc(it.name)}" data-del="${i}">×</button>
+    </div>`).join("");
+}
+function renderDaily(){
+  $("dAmt").value = S.daily.amt;
+  $("dAcct").innerHTML = acctOptions(S.daily.acct);
+  const e = S.end && new Date(S.end+"T00:00") >= today() ? S.end : iso(monthEnd());
+  S.end = e; $("endDate").value = e;
+}
+
+function compute(){
+  const t = today(), end = new Date(S.end+"T00:00");
+  const days = Math.max(1, Math.round((end - t)/86400000) + 1);
+  $("dateLine").textContent = t.toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long"}) + " · plan until " + end.toLocaleDateString("en-IN",{day:"numeric",month:"short"});
+  $("daysLeft").textContent = days + (days===1?" day":" days") + " to go, today included";
+
+  const total = S.accounts.reduce((s,a)=>s+(+a.bal||0),0);
+  const per = S.accounts.map(()=>({out:0,list:[]}));
+  S.items.forEach(it=>{
+    const v=(+it.amt||0)*(+it.qty||1);
+    if(!per[it.acct]) return;
+    per[it.acct].out+=v;
+    per[it.acct].list.push(it.name+((+it.qty||1)>1?` (${it.qty}×${fmt(it.amt)})`:"")+" "+fmt(v));
+  });
+  const d=+S.daily.amt||0;
+  if(per[S.daily.acct]){ per[S.daily.acct].out+=d; if(d) per[S.daily.acct].list.push("Day-to-day "+fmt(d)); }
+  const commit = per.reduce((s,p)=>s+p.out,0);
+  const free = total - commit;
+
+  $("sTotal").textContent=fmt(total);
+  $("sCommit").textContent=fmt(commit);
+  $("sFree").textContent=fmt(free);
+
+  const short = S.accounts.map((a,i)=>({name:a.name,left:(+a.bal||0)-per[i].out})).filter(x=>x.left<0);
+  const st=$("status");
+  if(free<0){ st.className="status bad"; st.textContent=`You're ${fmt(-free)} short overall. Cut the day-to-day amount or delay a bill.`; }
+  else if(short.length){
+    const s=short[0];
+    const donor = S.accounts.map((a,i)=>({i,name:a.name,left:(+a.bal||0)-per[i].out})).filter(x=>x.left>=-s.left).sort((a,b)=>b.left-a.left)[0];
+    st.className="status warn";
+    st.textContent=`${s.name} is ${fmt(-s.left)} short. ` + (donor?`Move a bill to ${donor.name}, or transfer ${fmt(-s.left)} from ${donor.name}.`:`Move a bill to another account.`);
+  } else if(free < total*0.1){ st.className="status warn"; st.textContent=`Every bill is covered, but only ${fmt(free)} is free. Treat it as emergency money only.`; }
+  else { st.className="status ok"; st.textContent=`Every bill is covered and every account stays positive. ${fmt(free)} stays free after month end.`; }
+
+  $("limit").innerHTML = `
+    <div><span class="eyebrow">Daily limit</span><span class="v">${fmt(d/days)}</span></div>
+    <div><span class="eyebrow">Weekly limit</span><span class="v">${fmt(d/days*7)}</span></div>`;
+
+  // reserve = account with nothing assigned and largest balance
+  const idle = S.accounts.map((a,i)=>({i,bal:+a.bal||0,out:per[i].out})).filter(x=>x.out===0).sort((a,b)=>b.bal-a.bal)[0];
+  $("plan").innerHTML = S.accounts.map((a,i)=>{
+    const left=(+a.bal||0)-per[i].out;
+    const tag = left<0?`<span class="pill bad">Short</span>`:(idle&&idle.i===i?`<span class="pill res">Reserve</span>`:`<span class="pill ok">OK</span>`);
+    return `<tr><td>${esc(a.name)}</td><td class="r num">${fmt(+a.bal||0)}</td>
+      <td class="paid">${per[i].list.length?per[i].list.map(esc).join("<br>"):"Nothing. Don't touch it."}</td>
+      <td class="r num">${fmt(left)}</td><td>${tag}</td></tr>`}).join("");
+  save();
+}
+
+document.addEventListener("input", e=>{
+  const el=e.target, k=el.dataset.k, i=+el.dataset.i;
+  if(el.closest("#accts")){ S.accounts[i][k] = k==="bal"? +el.value : el.value; if(k==="name"){ renderItemsKeep(); renderDailyKeep(); } }
+  else if(el.closest("#items")){ S.items[i][k] = k==="name"? el.value : +el.value; }
+  else if(el.id==="dAmt"){ S.daily.amt=+el.value }
+  else if(el.id==="endDate" && el.value){ S.end=el.value }
+  compute();
+});
+document.addEventListener("change", e=>{
+  const el=e.target;
+  if(el.closest("#items") && el.dataset.k==="acct"){ S.items[+el.dataset.i].acct=+el.value; compute(); }
+  if(el.id==="dAcct"){ S.daily.acct=+el.value; compute(); }
+});
+function renderItemsKeep(){ document.querySelectorAll('#items select').forEach((s,i)=>{ s.innerHTML=acctOptions(S.items[i].acct) }) }
+function renderDailyKeep(){ $("dAcct").innerHTML=acctOptions(S.daily.acct) }
+$("items").addEventListener("click", e=>{
+  const d=e.target.dataset.del; if(d===undefined) return;
+  S.items.splice(+d,1); renderItems(); compute();
+});
+$("addItem").addEventListener("click", ()=>{
+  S.items.push({name:"New bill",amt:0,qty:1,acct:0}); renderItems(); compute();
+  const n=$("in"+(S.items.length-1)); if(n){ n.focus(); n.select(); }
+});
+
+renderAccts(); renderItems(); renderDaily(); compute();
+</script>
+
+</body>
+</html>
